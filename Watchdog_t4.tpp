@@ -115,6 +115,11 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
   NVIC_ENABLE_IRQ(nvicIRQ);
 }
 
+WDT_FUNC void WDT_OPT::reset() {
+  if ( WDT3 == _device ) SCB_AIRCR = 0x05FA0004; /* WDT3 doesn't have a reset register, fall back to ARM */
+  WDOGb_WCR(_device) &= ~WDOG_WCR_SRS;
+}
+
 WDT_FUNC void WDT_OPT::feed() {
   if ( _device == WDT1 || _device == WDT2 ) {
     WDOGb_WSR(_device) = 0x5555;
