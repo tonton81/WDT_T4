@@ -48,7 +48,7 @@ WDT_CLASS class WDT_T4 : public WDT_T4_Base {
   public:
     void begin(WDT_timings_t config);
     void callback(watchdog_class_ptr handler) { watchdog_class_handler = handler; }
-    void reset() { WDOG1_WCR &= ~WDOG_WCR_SRS; }
+    void reset();
     void feed();
   private:
     watchdog_class_ptr watchdog_class_handler;
