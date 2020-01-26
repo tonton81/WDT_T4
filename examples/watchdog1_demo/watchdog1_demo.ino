@@ -15,6 +15,7 @@ void setup() {
   config.timeout = 10; /* in seconds, 0->128 */
   config.callback = myCallback;
   wdt.begin(config);
+  pinMode(13, OUTPUT);
 }
 
 void loop() {
@@ -22,7 +23,6 @@ void loop() {
   if ( millis() - blinkled > 50 ) {
     blinkled = millis();
     digitalWriteFast(13, !digitalReadFast(13));
-    pinMode(13, OUTPUT);
   }
 
   static uint32_t callback_test = millis();
