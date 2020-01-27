@@ -3,6 +3,7 @@
 
 #define WDOGb_WCR(b)		(*(volatile uint16_t*)(b))
 #define WDOGb_WSR(b)		(*(volatile uint16_t*)(b+0x2))
+#define WDOGb_WRSR(b)		(*(volatile uint16_t*)(b+0x4))
 #define WDOGb_WICR(b)		(*(volatile uint16_t*)(b+0x6))
 #define WDOGb_WMCR(b)		(*(volatile uint16_t*)(b+0x8))
 #define WDOGb_CS(b)		(*(volatile uint16_t*)(b))
@@ -13,10 +14,13 @@
 #define WDOG_WICR_WIE				((uint16_t)(1<<15))
 #define WDOG_WICR_WTIS			((uint16_t)(1<<14))
 #define WDOG_WICR_WICT(n)			((uint16_t)((n) & 0xFF))
+#define EWM_CTRL_INTEN			((uint8_t)(1<<3))
+#define EWM_CTRL_EWMEN			((uint8_t)(1<<0))
 
 static void watchdog1_isr();
 static void watchdog2_isr();
 static void watchdog3_isr();
+static void ewm_isr();
 
 WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
   IOMUXC_GPR_GPR16 |= 0x200000; /* undocumented register found by PaulS to fix reset */
@@ -62,6 +66,7 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
         if ( config.window ) config.window = (config.window/(255.0f/32.0f));
       }
     }
+
     __disable_irq();
     if ( WDOGb_CS(_device) & WDOG_CS_CMD32EN ) WDOGb_CNT32(_device) = 0xD928C520;
     else {
@@ -72,6 +77,43 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
     WDOGb_TOVAL(_device) = toVal;
     WDOGb_CS(_device) = ((config.window) ? WDOG_CS_WIN : 0) | ((preScaler) ? WDOG_CS_PRES : 0) | WDOG_CS_FLG | (config.update << 5) | (config.cmd32en << 13) | (config.clock << 8) | ((config.callback) ? WDOG_CS_INT : 0) | WDOG_CS_EN; 
     __enable_irq();
+    NVIC_ENABLE_IRQ(nvicIRQ);
+    return;
+  }
+
+  if ( _device == EWM ) {
+    CCM_CCGR3 |= (3UL << 14); /* enable EWM clocks */
+    _EWM = this;
+    nvicIRQ = IRQ_EWM;
+    _VectorsRam[16 + nvicIRQ] = ewm_isr;
+
+    if ( config.pin == 21 ) {
+      IOMUXC_CSI_DATA06_SELECT_INPUT = 0;
+      IOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B1_11 = 0x11; // pin21
+      IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_11 = 0x30b0; // pin21
+    }
+    else if ( config.pin == 25 ) {
+      IOMUXC_CSI_DATA06_SELECT_INPUT = 0;
+      IOMUXC_SW_MUX_CTL_PAD_GPIO_AD_B0_13 = 0x13; // pin25
+      IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B0_13 = 0x30b0; // pin25
+    }
+    else config.pin = 0;
+
+    double highest_limit_without_prescaler = ((1.0f/32.0f)*254.0f);
+    (void)highest_limit_without_prescaler; /* unused, kept for reference */
+    double lowest_limit_without_prescaler = ((1.0f/32.0f)*1.0f);
+    double highest_limit_with_prescaler = ((255.0f/32.0f)*254.0f);
+    double lowest_limit_with_prescaler = ((255.0f/32.0f)*1.0f);
+    (void)lowest_limit_with_prescaler; /* unused, kept for reference */
+    config.timeout = constrain(config.timeout, lowest_limit_without_prescaler, highest_limit_with_prescaler);
+    config.window = constrain(config.window, lowest_limit_without_prescaler, highest_limit_with_prescaler);
+    config.timeout = (config.timeout/(255.0f/32.0f));
+    config.window = (config.window/(255.0f/32.0f));
+    EWM_CLKPRESCALER = 0xFF;
+    EWM_CLKCTRL = 0x0;
+    EWM_CMPL = (uint8_t)config.window;
+    EWM_CMPH = (uint8_t)config.timeout;
+    EWM_CTRL = ((config.callback) ? EWM_CTRL_INTEN : 0) | EWM_CTRL_EWMEN;
     NVIC_ENABLE_IRQ(nvicIRQ);
     return;
   }
@@ -108,19 +150,29 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
   WDOGb_WCR(_device) = WDOG_WCR_SRS | WDOG_WCR_WT((uint8_t)config.timeout); /* do NOT negate the reset signal when clearing register */
   config.trigger = constrain(config.trigger, 0.0f, 127.5); /* callback trigger before timeout */
   config.trigger /= 0.5f;
-  WDOGb_WICR(_device) = WDOG_WICR_WIE | WDOG_WICR_WTIS | WDOG_WICR_WICT((uint8_t)config.trigger); /* enable interrupt, clear interrupt */
-  WDOGb_WCR(_device) |= WDOG_WCR_WDE | ((config.pin) ? WDOG_WCR_WDA : 0) | WDOG_WCR_WDT | WDOG_WCR_SRE;
-  WDOGb_WMCR(_device) = 0;
-  WDOGb_WICR(_device) |= WDOG_WICR_WIE | WDOG_WICR_WTIS;
+  WDOGb_WICR(_device) = ((config.callback) ? WDOG_WICR_WIE : 0) | WDOG_WICR_WTIS | WDOG_WICR_WICT((uint8_t)config.trigger); /* enable interrupt, clear interrupt */
+  WDOGb_WCR(_device) |= WDOG_WCR_WDE | ((config.lp_suspend) ? WDOG_WCR_WDZST : 0) | WDOG_WCR_WDA | WDOG_WCR_WDT | WDOG_WCR_SRE;
+  WDOGb_WMCR(_device) = 0; /* Disable power down counter, else GPIO will force LOW indefinately after 16 seconds */
   NVIC_ENABLE_IRQ(nvicIRQ);
 }
 
+WDT_FUNC bool WDT_OPT::expired() {
+  if ( WDT3 == _device ) return SRC_SRSR & SRC_SRSR_WDOG3_RST_B;
+  if ( EWM == _device ) return 0; /* No status register? */
+  return WDOGb_WRSR(_device) & WDOG_WRSR_TOUT;
+}
+
 WDT_FUNC void WDT_OPT::reset() {
-  if ( WDT3 == _device ) SCB_AIRCR = 0x05FA0004; /* WDT3 doesn't have a reset register, fall back to ARM */
+  if ( WDT3 == _device || EWM == _device ) SCB_AIRCR = 0x05FA0004; /* WDT3 & EWM doesn't have a reset register, fall back to ARM */
   WDOGb_WCR(_device) &= ~WDOG_WCR_SRS;
 }
 
 WDT_FUNC void WDT_OPT::feed() {
+  if ( _device == EWM ) {
+    EWM_SERV = 0xB4;
+    EWM_SERV = 0x2C;
+    return;
+  }
   if ( _device == WDT1 || _device == WDT2 ) {
     WDOGb_WSR(_device) = 0x5555;
     WDOGb_WSR(_device) = 0xAAAA;
@@ -150,5 +202,15 @@ WDT_FUNC void WDT_OPT::watchdog_isr() {
   if ( watchdog_class_handler ) watchdog_class_handler();
   if ( WDT3 == _device ) WDOGb_CS(_device) = WDOG_CS_FLG;
   else WDOGb_WICR(_device) |= WDOG_WICR_WTIS;
+  asm volatile ("dsb"); /* disable double firing of interrupt */
+}
+
+void ewm_isr() {
+  if ( _EWM ) _EWM->ewatchdog_isr();
+}
+
+WDT_FUNC void WDT_OPT::ewatchdog_isr() {
+  if ( watchdog_class_handler ) watchdog_class_handler();
+  EWM_CTRL &= ~(1U << 3); /* disable further interrupts, EWM has been triggered, only way out is reset */
   asm volatile ("dsb"); /* disable double firing of interrupt */
 }
