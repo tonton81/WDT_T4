@@ -151,7 +151,7 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
   config.trigger = constrain(config.trigger, 0.0f, 127.5); /* callback trigger before timeout */
   config.trigger /= 0.5f;
   WDOGb_WICR(_device) = ((config.callback) ? WDOG_WICR_WIE : 0) | WDOG_WICR_WTIS | WDOG_WICR_WICT((uint8_t)config.trigger); /* enable interrupt, clear interrupt */
-  WDOGb_WCR(_device) |= WDOG_WCR_WDE | ((config.lp_suspend) ? WDOG_WCR_WDZST : 0) | WDOG_WCR_WDA | WDOG_WCR_WDT | WDOG_WCR_SRE | WDOG_WCR_WDW ;
+  WDOGb_WCR(_device) |= WDOG_WCR_WDE | ((config.lp_suspend) ? (WDOG_WCR_WDW | WDOG_WCR_WDZST) : 0) | WDOG_WCR_WDA | WDOG_WCR_WDT | WDOG_WCR_SRE;
   WDOGb_WMCR(_device) = 0; /* Disable power down counter, else GPIO will force LOW indefinately after 16 seconds */
   WDOGb_CS(_device) |= WDOG_CS_FLG | (config.update << 5) | (config.cmd32en << 13) | (config.clock << 8) | ((config.callback) ? WDOG_CS_INT : 0) | WDOG_CS_EN | ((config.lp_suspend) ? (WDOG_CS_WAIT | WDOG_CS_STOP) : 0);
   NVIC_ENABLE_IRQ(nvicIRQ);
