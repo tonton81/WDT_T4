@@ -75,7 +75,7 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
     }
     WDOGb_WIN(_device) = config.window;
     WDOGb_TOVAL(_device) = toVal;
-    WDOGb_CS(_device) = ((config.window) ? WDOG_CS_WIN : 0) | ((preScaler) ? WDOG_CS_PRES : 0);
+    WDOGb_CS(_device) = ((config.window) ? WDOG_CS_WIN : 0) | ((preScaler) ? WDOG_CS_PRES : 0) | WDOG_CS_FLG | (config.update << 5) | (config.cmd32en << 13) | (config.clock << 8) | ((config.callback) ? WDOG_CS_INT : 0) | WDOG_CS_EN;
     __enable_irq();
     NVIC_ENABLE_IRQ(nvicIRQ);
     return;
@@ -145,15 +145,15 @@ WDT_FUNC void WDT_OPT::begin(WDT_timings_t config) {
     else config.pin = 0;
   }
 
+  WDOGb_CS(_device) = WDOG_CS_FLG | (config.update << 5) | (config.cmd32en << 13) | (config.clock << 8) | ((config.callback) ? WDOG_CS_INT : 0) | WDOG_CS_EN;
   config.timeout = constrain(config.timeout, 0.5f, 128.0f); /* timeout to reset */
   config.timeout = (config.timeout - 0.5f)/0.5f;
   WDOGb_WCR(_device) = WDOG_WCR_SRS | WDOG_WCR_WT((uint8_t)config.timeout); /* do NOT negate the reset signal when clearing register */
   config.trigger = constrain(config.trigger, 0.0f, 127.5); /* callback trigger before timeout */
   config.trigger /= 0.5f;
   WDOGb_WICR(_device) = ((config.callback) ? WDOG_WICR_WIE : 0) | WDOG_WICR_WTIS | WDOG_WICR_WICT((uint8_t)config.trigger); /* enable interrupt, clear interrupt */
-  WDOGb_WCR(_device) |= WDOG_WCR_WDE | ((config.lp_suspend) ? (WDOG_WCR_WDW | WDOG_WCR_WDZST) : 0) | WDOG_WCR_WDA | WDOG_WCR_WDT | WDOG_WCR_SRE;
+  WDOGb_WCR(_device) |= WDOG_WCR_WDE | ((config.lp_suspend) ? WDOG_WCR_WDZST : 0) | WDOG_WCR_WDA | WDOG_WCR_WDT | WDOG_WCR_SRE;
   WDOGb_WMCR(_device) = 0; /* Disable power down counter, else GPIO will force LOW indefinately after 16 seconds */
-  WDOGb_CS(_device) |= WDOG_CS_FLG | (config.update << 5) | (config.cmd32en << 13) | (config.clock << 8) | ((config.callback) ? WDOG_CS_INT : 0) | WDOG_CS_EN | ((config.lp_suspend) ? (WDOG_CS_WAIT | WDOG_CS_STOP) : 0);
   NVIC_ENABLE_IRQ(nvicIRQ);
 }
 
@@ -201,7 +201,7 @@ void watchdog3_isr() {
 
 WDT_FUNC void WDT_OPT::watchdog_isr() {
   if ( watchdog_class_handler ) watchdog_class_handler();
-  if ( WDT3 == _device ) WDOGb_CS(_device) = WDOG_CS_FLG;
+  if ( WDT3 == _device ) WDOGb_CS(_device) |= WDOG_CS_FLG;
   else WDOGb_WICR(_device) |= WDOG_WICR_WTIS;
   asm volatile ("dsb"); /* disable double firing of interrupt */
 }
