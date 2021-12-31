@@ -1,0 +1,19 @@
+{
+  "name": "WDT_T4",
+  "frameworks": "Arduino",
+  "platforms": "Teensy",
+  "keywords": "watchdog",
+  "description": "Watchdog for Teensy 4, WDOG1,2,3, and EWM",
+  "homepage": "https://forum.pjrc.com/threads/59257-WDT_T4-Watchdog-Library-for-Teensy-4",
+  "authors":
+  {
+    "name": "Antonio Brewer",
+    "maintainer": true
+  },
+  "repository":
+  {
+      "type": "git",
+      "url": "https://github.com/tonton81/WDT_T4.git"
+  },
+  "version": "0.1"
+}
